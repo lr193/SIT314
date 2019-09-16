@@ -1,0 +1,215 @@
+package com.vogella.maven.quickstart;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.concurrent.Semaphore;
+
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.eclipse.paho.client.mqttv3.MqttPersistenceException;
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
+
+
+
+public class App_8_4d implements MqttCallback
+{
+	String allTopic = "SIT314Deakin/all";
+	String shortDistTopic = "SIT314Deakin/sd";
+	String batteryTopc = "SIT314Deakin/all/battery";
+	String lonLatTopic = "SIT314Deakin/ld/longlat";
+	String broker = "tcp://broker.hivemq.com:1883";//this is the address of the public broker
+	String clientId = "218696604";
+	MemoryPersistence persistence = new MemoryPersistence();
+	MqttClient client = null;
+	int count=0;
+	int battFlag = 0;
+	String battTopic = null;
+	ArrayList<Drone> drones = new ArrayList<Drone>();
+	ArrayList<Drone> dronePos = new ArrayList<Drone>();
+	Date lastUpdatedTime = new Date();
+	
+    public static void main( String[] args ) throws InterruptedException
+    {  	
+    	
+    	App_8_4d appObj = new App_8_4d();
+   	 
+    	Drone d1 = new Drone();
+    	
+    	d1.setBattery(2);
+    	d1.setId(1);
+    	d1.setLat(2.5);
+    	d1.setLongi(2.56);
+    	d1.setAlt(80);
+    	d1.setTopic(appObj.batteryTopc);
+    	appObj.drones.add(d1);
+    	
+    	Drone d2 = new Drone();
+    	
+    	d2.setBattery(2);
+    	d2.setId(2);
+    	d2.setLat(2.5);
+    	d2.setLongi(2.56);
+    	d2.setAlt(180);
+    	d2.setTopic(appObj.batteryTopc);
+    	appObj.drones.add(d2);
+    	
+    	Drone d3 = new Drone();
+    	
+    	d3.setBattery(5);
+    	d3.setId(3);
+    	d3.setLat(2.5);
+    	d3.setLongi(2.56);
+    	d3.setAlt(50);
+    	d3.setTopic(appObj.batteryTopc);
+    	appObj.drones.add(d3);
+    	
+    	Drone d4 = new Drone();
+    	
+    	d4.setBattery(99);
+    	d4.setId(4);
+    	d4.setLat(2.5);
+    	d4.setLongi(2.56);
+    	d4.setAlt(30);
+    	d4.setTopic(appObj.batteryTopc);
+    	appObj.drones.add(d4);
+    	
+    	appObj.lastUpdatedTime = new Date();
+    	
+    	try {
+    		 appObj.connectAndSubscribe(d1);
+    		 appObj.connectAndSubscribe(d2);
+    		 appObj.connectAndSubscribe(d3);
+    		 appObj.connectAndSubscribe(d4);
+    	} catch (MqttException e) {
+    		e.printStackTrace();
+    	}
+    	
+    	appObj.publishMsg(appObj.allTopic, appObj.drones, appObj.lastUpdatedTime);
+    	
+    }
+
+	public void connectionLost(Throwable cause) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	public void messageArrived(String topic, MqttMessage message) throws Exception {
+		// TODO Auto-generated method stub
+		
+		System.out.println("Topic: "+topic+"\nMessage: "+message+"\n");
+		
+	}
+
+	public void deliveryComplete(IMqttDeliveryToken token) {
+		// TODO Auto-generated method stub
+		
+	}
+	
+	public void connectAndSubscribe(Drone drone) throws MqttException, InterruptedException{
+		
+		Semaphore sem1 = new Semaphore(1);
+		
+		client = new MqttClient(broker, clientId, persistence);
+		 client.setCallback(this);
+		 MqttConnectOptions mqOptions=new MqttConnectOptions();
+		 mqOptions.setCleanSession(true);
+		 
+		 sem1.acquire(); 
+		 if(drone.battery < 10)
+			 count++;
+		 if(count>=2) {
+			 count = 0;
+			 battFlag = 1;
+			 battTopic = drone.getTopic();
+			 System.out.println("Two ro more battery low drones"+battFlag+"  "+battTopic);
+		 }
+		 sem1.release();
+		 		 
+		 client.connect(mqOptions); //connecting to broker
+		 client.subscribe(drone.getTopic()); //subscribing to the topic name
+		 System.out.println("Connect and Subs");
+	}
+	
+	public void publishMsg(String topicToPublish, ArrayList<Drone> drones, Date lastUpdatedTime){ 
+		
+		Iterator droneIterator = drones.iterator();
+		ArrayList prevDroneInfo = new ArrayList<Drone>();
+		int count = 0;
+		String msg = null;
+		
+		if(prevDroneInfo.isEmpty())
+			prevDroneInfo = drones;
+		
+		String tempStr = null;
+		while(droneIterator.hasNext()) {
+			Drone tempDrone = (Drone) droneIterator.next();
+			if(tempDrone.getBattery() < 20)
+				count++; 
+		}
+		
+		Date newTime = new Date();
+		String tempMsg = "";
+		boolean longLatState=false;
+		
+		if(lastUpdatedTime.compareTo(newTime) < 10) {
+					
+			
+			for(int i =0; i < drones.size(); i++) {
+				
+				Drone prev = (Drone) prevDroneInfo.get(i);
+				Drone cur =  (Drone) drones.get(i);
+				
+				double prevLong = prev.getLongi();
+				double prevLat = prev.getLat();
+				double curLong = cur.getLongi();
+				double curLat = cur.getLat();
+				double curAlt = cur.getAlt();
+				
+				
+				if((prevLong == curLong) && (prevLat == curLat) && (curAlt > 100)){
+					longLatState= true;
+					int id  = cur.getId();
+					tempMsg = tempMsg + ", "+id;
+				}							
+			}
+		}
+		
+		
+		switch(topicToPublish.toString()) { 
+			case "SIT314Deakin/all	": msg="All drones";break;
+			case "SIT314Deakin/sd": msg = "All SHort Dist Drones";break;
+			case "SIT314Deakin/all/battery": msg="Check drone battery levels";break;
+			case "SIT314Deakin/ld/longlat": msg="All long dist drones";break;
+			default: msg = "Not specified";
+		}	
+		
+		if(count >=2)
+			msg = msg+". Check battery levels";
+		
+		if(longLatState == true) {
+			String a = "Stationary Drone ID's since 10 mins: ";
+			tempMsg = a + tempMsg;
+			msg = msg + tempMsg;
+			lastUpdatedTime = new Date();
+		}		
+		
+		MqttMessage mqttInst = new MqttMessage();
+		mqttInst.setPayload(msg.getBytes());
+		
+		try {
+			client.publish(topicToPublish, mqttInst);
+		} catch (MqttPersistenceException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (MqttException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+}
